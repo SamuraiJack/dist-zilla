@@ -20,10 +20,23 @@ defaults, unsurprisingly, to F<MANIFEST.SKIP>.
 
 has skipfile => (is => 'ro', required => 1, default => 'MANIFEST.SKIP');
 
+
+=attr use_default
+
+When set to 0, the plugin will ignore the default F<MANIFEST.SKIP>
+file, silently included in the ExtUtils::Manifest distribution. Defaults to 1.
+
+=cut
+
+has use_default => (is => 'ro', isa => 'Bool', default => 1);
+
+
 sub prune_files {
   my ($self) = @_;
 
-  my $skip = ExtUtils::Manifest::maniskip($self->skipfile);
+  my $skip = -f $self->skipfile || $self->use_default ? 
+    ExtUtils::Manifest::maniskip($self->skipfile) 
+    : \sub { 0 };
 
   my $files = $self->zilla->files;
   @$files = grep {
