@@ -147,11 +147,16 @@ has exclude_match => (
 sub gather_files {
   my ($self) = @_;
 
+  my $exclude_regex = qr/\000/;
+  $exclude_regex = qr/$exclude_regex|$_/
+    for ($self->exclude_match->flatten);
+
+  my %is_excluded = map {; $_ => 1 } $self->exclude_filename->flatten;
+
   my $root = "" . $self->root;
   $root =~ s{^~([\\/])}{File::HomeDir->my_home . $1}e;
   $root = Path::Class::dir($root);
 
-  my @files;
   my $rule = File::Find::Rule->new();
   # for `allow_symlink_cycles=true` we set the "follow_skip" to 2
   # for `allow_symlink_cycles=false` we set the "follow_skip" to 1 (default)
@@ -170,24 +175,16 @@ sub gather_files {
       next FILE if grep { /^\.[^.]/ } $file->dir->dir_list;
     }
 
-    my $exclude_regex = qr/\000/;
-    $exclude_regex = qr/$exclude_regex|$_/
-      for ($self->exclude_match->flatten);
-    # \b\Q$_\E\b should also handle the `eq` check
-    $exclude_regex = qr/$exclude_regex|\b\Q$_\E\b/
-      for ($self->exclude_filename->flatten);
     next if $file =~ $exclude_regex;
+    next if $is_excluded{ $file };
 
-    push @files, $self->_file_from_filename($filename);
-  }
+    # _file_from_filename is overloaded in GatherDir::Template
+    my $fileobj = $self->_file_from_filename($filename);
 
-  for my $file (@files) {
-    (my $newname = $file->name) =~ s{\A\Q$root\E[\\/]}{}g;
-    $newname = File::Spec->catdir($self->prefix, $newname) if $self->prefix;
-    $newname = Path::Class::dir($newname)->as_foreign('Unix')->stringify;
+    $file = Path::Class::file($self->prefix, $file) if $self->prefix;
 
-    $file->name($newname);
-    $self->add_file($file);
+    $fileobj->name($file->as_foreign('Unix')->stringify);
+    $self->add_file($fileobj);
   }
 
   return;

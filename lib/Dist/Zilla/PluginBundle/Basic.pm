@@ -30,7 +30,6 @@ sub configure {
 
 __PACKAGE__->meta->make_immutable;
 1;
-__END__
 
 =head1 DESCRIPTION
 
@@ -55,6 +54,14 @@ It includes the following plugins with their default configuration:
 * L<Dist::Zilla::Plugin::TestRelease>
 * L<Dist::Zilla::Plugin::ConfirmRelease>
 * L<Dist::Zilla::Plugin::UploadToCPAN>
+
+=head1 SEE ALSO
+
+Core Dist::Zilla plugins: L<@Filter|Dist::Zilla::PluginBundle::Filter>.
+
+Dist::Zilla roles:
+L<PluginBundle|Dist::Zilla::Role::PluginBundle>,
+L<PluginBundle::Easy|Dist::Zilla::Role::PluginBundle::Easy>.
 
 =cut
 

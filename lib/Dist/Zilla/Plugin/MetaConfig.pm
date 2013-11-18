@@ -14,6 +14,9 @@ package, and version will be included.  Plugins may augment their
 implementation of the L<Dist::Zilla::Role::ConfigDumper> role methods to add
 more data to this dump.
 
+More information may be added to the top-level of this metadata as time goes
+on.
+
 =cut
 
 sub metadata {
@@ -29,6 +32,10 @@ sub metadata {
     class   => $self->zilla->meta->name,
     version => $self->zilla->VERSION,
       (keys %$config ? (config => $config) : ()),
+  };
+
+  $dump->{perl} = {
+    version => $],
   };
 
   for my $plugin (@{ $self->zilla->plugins }) {
@@ -47,3 +54,9 @@ sub metadata {
 
 __PACKAGE__->meta->make_immutable;
 1;
+
+=head1 SEE ALSO
+
+Dist::Zilla roles: L<MetaProvider|Dist::Zilla::Role::MetaProvider>.
+
+=cut

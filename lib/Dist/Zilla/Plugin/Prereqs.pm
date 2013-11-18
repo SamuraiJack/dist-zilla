@@ -50,7 +50,7 @@ the resulting plugin:
 =head1 DESCRIPTION
 
 This module adds "fixed" prerequisites to your distribution.  These are prereqs
-with a known, fixed minimum version that doens't change based on platform or
+with a known, fixed minimum version that doesn't change based on platform or
 other conditions.
 
 You can specify prerequisites for different phases and kinds of relationships.
@@ -180,3 +180,21 @@ sub register_prereqs {
 
 __PACKAGE__->meta->make_immutable;
 1;
+
+=head1 SEE ALSO
+
+=over 4
+
+=item *
+
+Core Dist::Zilla plugins:
+L<@Basic|Dist::Zilla::PluginBundle::Basic>,
+L<AutoPrereqs|Dist::Zilla::Plugin::AutoPrereqs>.
+
+=item *
+
+The CPAN Meta specification: L<CPAN::Meta/PREREQUISITES>.
+
+=back
+
+=cut

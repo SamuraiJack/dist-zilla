@@ -33,6 +33,10 @@ sub BUILDARGS {
   my $zilla = delete $copy{zilla};
   my $name  = delete $copy{plugin_name};
 
+  if (exists $copy{license} && ref($copy{license}) ne 'ARRAY') {
+      $copy{license} = [ $copy{license} ];
+  }
+
   if (exists $copy{bugtracker}) {
     my $tracker = delete $copy{bugtracker};
     $copy{bugtracker}{web} = $tracker;
@@ -65,3 +69,11 @@ sub metadata {
 
 __PACKAGE__->meta->make_immutable;
 1;
+
+=head1 SEE ALSO
+
+Dist::Zilla roles: L<MetaProvider|Dist::Zilla::Role::MetaProvider>.
+
+Dist::Zilla plugins on the CPAN: L<GithubMeta|Dist::Zilla::Plugin::GithubMeta>.
+
+=cut

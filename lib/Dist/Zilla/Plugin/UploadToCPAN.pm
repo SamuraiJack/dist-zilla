@@ -3,7 +3,6 @@ package Dist::Zilla::Plugin::UploadToCPAN;
 use Moose;
 with qw(Dist::Zilla::Role::BeforeRelease Dist::Zilla::Role::Releaser);
 
-use CPAN::Uploader 0.101550; # ua string
 use File::HomeDir;
 use File::Spec;
 use Moose::Util::TypeConstraints;
@@ -40,7 +39,8 @@ blank username or password will abort the release.
 {
   package
     Dist::Zilla::Plugin::UploadToCPAN::_Uploader;
-  use base 'CPAN::Uploader';
+  # CPAN::Uploader will be loaded later if used
+  our @ISA = 'CPAN::Uploader';
   # Report CPAN::Uploader's version, not ours:
   sub _ua_string { CPAN::Uploader->_ua_string }
 
@@ -138,17 +138,13 @@ has pause_cfg => (
   lazy    => 1,
   default => sub {
     my $self = shift;
-    open my $fh, '<', $self->pause_cfg_file
-      or return {};
-    my %ret;
-    # basically taken from the parsing code used by cpan-upload
-    # (maybe this should be part of the CPAN::Uploader api?)
-    while (<$fh>) {
-      next if /^\s*(?:#.*)?$/;
-      my ($k, $v) = /^\s*(\w+)\s+(.+)$/;
-      $ret{$k} = $v;
-    }
-    return \%ret;
+    require CPAN::Uploader;
+    my $cfg = try {
+      CPAN::Uploader->read_config_file( $self->pause_cfg_file );
+    } catch {
+      {};
+    };
+    return $cfg;
   },
 );
 
@@ -185,6 +181,10 @@ has uploader => (
   lazy => 1,
   default => sub {
     my ($self) = @_;
+
+    # Load the module lazily
+    require CPAN::Uploader;
+    CPAN::Uploader->VERSION('0.103004');  # require HTTPS
 
     my $uploader = Dist::Zilla::Plugin::UploadToCPAN::_Uploader->new({
       user     => $self->username,

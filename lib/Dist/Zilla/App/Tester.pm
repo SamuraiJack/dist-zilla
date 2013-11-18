@@ -1,5 +1,6 @@
+use strict;
 package Dist::Zilla::App::Tester;
-use base 'App::Cmd::Tester';
+use parent 'App::Cmd::Tester::CaptureExternal';
 use App::Cmd::Tester 0.306 (); # result_class, ->app
 # ABSTRACT: testing library for Dist::Zilla::App
 
@@ -34,7 +35,7 @@ sub test_dzil {
 
   local $ENV{DZIL_TESTING} = 1;
   my $result = $self->test_app('Dist::Zilla::App' => $argv);
-  $result->{tempdir} = $tempdir;
+  $result->{tempdir} = $tmpdir;
 
   return $result;
 }

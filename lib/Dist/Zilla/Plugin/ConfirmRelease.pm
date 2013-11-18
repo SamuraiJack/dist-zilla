@@ -5,7 +5,6 @@ with 'Dist::Zilla::Role::BeforeRelease';
 
 use namespace::autoclean;
 
-use ExtUtils::MakeMaker ();
 use Moose::Autobox;
 
 sub before_release {
@@ -33,8 +32,6 @@ sub before_release {
 __PACKAGE__->meta->make_immutable;
 1;
 
-__END__
-
 =head1 DESCRIPTION
 
 This plugin prompts the author whether or not to continue before releasing
@@ -44,7 +41,3 @@ they upload.
 The default is "no", but you can set the environment variable
 C<DZIL_CONFIRMRELEASE_DEFAULT> to "yes" if you just want to hit enter to
 release.
-
-This plugin uses C<ExtUtils::MakeMaker::prompt()>, so setting
-C<PERL_MM_USE_DEFAULT> to a true value will accept the default without
-prompting.

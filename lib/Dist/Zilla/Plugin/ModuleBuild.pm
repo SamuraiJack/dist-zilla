@@ -31,8 +31,14 @@ Defaults to 0.3601
 =attr mb_class
 
 B<Optional:> Specify the class to use to create the build object.  Defaults
-to C<Module::Build> itself.  If another class is specified, C<use lib 'inc'>
-is also added to the Build.PL file.
+to C<Module::Build> itself.  If another class is specified, then the value
+of mb_lib will be used to generate a line like C<use lib 'inc'> to be added
+to the generated Build.PL file.
+
+=attr mb_lib
+
+B<Optional:> Specify the list of directories to be passed to lib when using 
+mb_class. Defaults to C<inc>. 
 
 =cut
 
@@ -48,6 +54,12 @@ has 'mb_class' => (
   default => 'Module::Build',
 );
 
+has 'mb_lib' => (
+  isa => 'Str',
+  is  => 'rw',
+  default => 'inc'
+);
+
 my $template = q|
 use strict;
 use warnings;
@@ -56,6 +68,19 @@ use Module::Build {{ $plugin->mb_version }};
 {{ $plugin->_use_custom_class }}
 
 my {{ $module_build_args }}
+
+unless ( eval { Module::Build->VERSION(0.4004) } ) {
+  my $tr = delete $module_build_args{test_requires};
+  my $br = $module_build_args{build_requires};
+  for my $mod ( keys %$tr ) {
+    if ( exists $br->{$mod} ) {
+      $br->{$mod} = $tr->{$mod} if $tr->{$mod} > $br->{$mod};
+    }
+    else {
+      $br->{$mod} = $tr->{$mod};
+    }
+  }
+}
 
 my $build = {{ $plugin->mb_class }}->new(%module_build_args);
 
@@ -69,7 +94,7 @@ sub _use_custom_class {
     return "";
   }
   else {
-    return "use lib 'inc'; use $class;";
+    return sprintf "use lib qw{%s}; use $class;", join ' ', split ',', $self->mb_lib;
   }
 }
 
@@ -100,12 +125,9 @@ sub module_build_args {
   my %prereqs = (
     configure_requires => $prereqs->requirements_for(qw(configure requires)),
     build_requires     => $prereqs->requirements_for(qw(build     requires)),
+    test_requires      => $prereqs->requirements_for(qw(test      requires)),
     requires           => $prereqs->requirements_for(qw(runtime   requires)),
     recommends         => $prereqs->requirements_for(qw(runtime   recommends)),
-  );
-
-  $prereqs{build_requires} = $prereqs{build_requires}->clone->add_requirements(
-    $prereqs->requirements_for(qw(test requires))
   );
 
   (my $name = $self->zilla->name) =~ s/-/::/g;
@@ -168,3 +190,17 @@ has __module_build_args => (
 
 __PACKAGE__->meta->make_immutable;
 1;
+
+=head1 SEE ALSO
+
+Core Dist::Zilla plugins:
+L<@Basic|Dist::Zilla::PluginBundle::Basic>,
+L<@Filter|Dist::Zilla::PluginBundle::Filter>,
+L<MakeMaker|Dist::Zilla::Plugin::MakeMaker>,
+L<Manifest|Dist::Zilla::Plugin::Manifest>.
+
+Dist::Zilla roles:
+L<BuildPL|Dist::Zilla::Role::BuildPL>.
+
+=cut
+

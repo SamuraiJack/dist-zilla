@@ -4,7 +4,6 @@ use Moose 0.92; # role composition fixes
 with 'Dist::Zilla::Role::ConfigDumper';
 
 use Moose::Autobox 0.09; # ->flatten
-use MooseX::LazyRequire;
 use MooseX::Types::Moose qw(ArrayRef Bool HashRef Object Str);
 use MooseX::Types::Perl qw(DistName LaxVersionStr);
 use MooseX::Types::Path::Class qw(Dir File);
@@ -12,7 +11,6 @@ use Moose::Util::TypeConstraints;
 
 use Dist::Zilla::Types qw(License);
 
-use Hash::Merge::Simple ();
 use Log::Dispatchouli 1.100712; # proxy_loggers, quiet_fatal
 use Path::Class;
 use List::Util qw(first);
@@ -60,7 +58,8 @@ double colons (C<::>) replaced with dashes.  For example: C<Dist-Zilla>.
 has name => (
   is   => 'ro',
   isa  => DistName,
-  lazy_required => 1,
+  lazy => 1,
+  builder => '_build_name',
 );
 
 =attr version
@@ -81,9 +80,25 @@ has version => (
   isa  => LaxVersionStr,
   lazy => 1,
   init_arg  => undef,
-  required  => 1,
   builder   => '_build_version',
 );
+
+sub _build_name {
+  my ($self) = @_;
+
+  my $name;
+  for my $plugin ($self->plugins_with(-NameProvider)->flatten) {
+    next unless defined(my $this_name = $plugin->provide_name);
+
+    $self->log_fatal('attempted to set name twice') if defined $name;
+
+    $name = $this_name;
+  }
+
+  $self->log_fatal('no name was ever set') unless defined $name;
+
+  $name;
+}
 
 sub _build_version {
   my ($self) = @_;
@@ -114,7 +129,6 @@ has abstract => (
   is   => 'rw',
   isa  => 'Str',
   lazy => 1,
-  required => 1,
   default  => sub {
     my ($self) = @_;
 
@@ -164,7 +178,6 @@ has main_module => (
   isa  => 'Dist::Zilla::Role::File',
   lazy => 1,
   init_arg => undef,
-  required => 1,
   default  => sub {
 
     my ($self) = @_;
@@ -246,6 +259,24 @@ sub _build_license {
   my $copyright_holder = $self->_copyright_holder;
   my $copyright_year   = $self->_copyright_year;
 
+  my $provided_license;
+
+  for my $plugin ($self->plugins_with(-LicenseProvider)->flatten) {
+    my $this_license = $plugin->provide_license({
+      copyright_holder => $copyright_holder,
+      copyright_year   => $copyright_year,
+    });
+
+    next unless defined $this_license;
+
+    $self->log_fatal('attempted to set license twice')
+      if defined $provided_license;
+
+    $provided_license = $this_license;
+  }
+
+  return $provided_license if defined $provided_license;
+
   if ($license_class) {
     $license_class = String::RewritePrefix->rewrite(
       {
@@ -263,7 +294,8 @@ sub _build_license {
     if (@guess != 1) {
       $self->log_fatal(
         "no license data in config, no %Rights stash,",
-        "couldn't make a good guess at license from Pod; giving up"
+        "couldn't make a good guess at license from Pod; giving up. ",
+        "Perhaphs you need set global config file (dzil setup)?"
       );
     }
 
@@ -272,7 +304,7 @@ sub _build_license {
     $self->log("based on POD in $filename, guessing license is $guess[0]");
   }
 
-  Class::MOP::load_class($license_class);
+  Class::Load::load_class($license_class);
 
   my $license = $license_class->new({
     holder => $self->_copyright_holder,
@@ -349,7 +381,6 @@ has authors => (
   is   => 'ro',
   isa  => ArrayRef[Str],
   lazy => 1,
-  required => 1,
   default  => sub {
     my ($self) = @_;
 
@@ -464,13 +495,13 @@ sub _build_distmeta {
   my $meta = {
     'meta-spec' => {
       version => 2,
-      url     => 'http://github.com/dagolden/cpan-meta/',
+      url     => 'http://search.cpan.org/perldoc?CPAN::Meta::Spec',
     },
     name     => $self->name,
     version  => $self->version,
     abstract => $self->abstract,
     author   => $self->authors,
-    license  => $self->license->meta2_name,
+    license  => [ $self->license->meta2_name ],
 
     # XXX: what about unstable?
     release_status => ($self->is_trial or $self->version =~ /_/)
@@ -483,8 +514,15 @@ sub _build_distmeta {
                     . (defined $self->VERSION ? $self->VERSION : '(undef)')
   };
 
-  $meta = Hash::Merge::Simple::merge($meta, $_->metadata)
-    for $self->plugins_with(-MetaProvider)->flatten;
+  require Hash::Merge::Simple;
+  my $dynamic;
+  for ($self->plugins_with(-MetaProvider)->flatten) {
+    my $plugin_meta = $_->metadata;
+    $meta = Hash::Merge::Simple::merge($meta, $plugin_meta);
+    $dynamic = 1 if $plugin_meta->{dynamic_config};
+  }
+
+  $meta->{dynamic_config} = 1 if $dynamic;
 
   return $meta;
 }
@@ -674,7 +712,6 @@ sub stash_named {
 
 __PACKAGE__->meta->make_immutable;
 1;
-__END__
 
 =head1 SUPPORT
 
@@ -688,3 +725,48 @@ There is a mailing list to discuss Dist::Zilla.  You can L<join the
 list|http://www.listbox.com/subscribe/?list_id=139292> or L<browse the
 archives|http://listbox.com/member/archive/139292>.
 
+=head1 SEE ALSO
+
+=over 4
+
+=item *
+
+In the Dist::Zilla distribution:
+
+=over 4
+
+=item *
+
+Plugin bundles:
+L<@Basic|Dist::Zilla::PluginBundle::Basic>,
+L<@Filter|Dist::Zilla::PluginBundle::Filter>.
+
+=item *
+
+Major plugins:
+L<GatherDir|Dist::Zilla::Plugin::GatherDir>,
+L<Prereqs|Dist::Zilla::Plugin::Prereqs>,
+L<AutoPrereqs|Dist::Zilla::Plugin::AutoPrereqs>,
+L<MetaYAML|Dist::Zilla::Plugin::MetaYAML>,
+L<MetaJSON|Dist::Zilla::Plugin::MetaJSON>,
+...
+
+=back
+
+=item *
+
+On the CPAN:
+
+=over 4
+
+=item *
+
+Search for plugins: L<https://metacpan.org/search?q=Dist::Zilla::Plugin::>
+
+=item *
+
+Search for plugin bundles: L<https://metacpan.org/search?q=Dist::Zilla::PluginBundle::>
+
+=back
+
+=back

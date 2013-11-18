@@ -7,7 +7,6 @@ use Moose::Autobox 0.09; # ->flatten
 use MooseX::Types::Moose qw(HashRef);
 use MooseX::Types::Path::Class qw(Dir File);
 
-use Archive::Tar;
 use File::pushd ();
 use Path::Class;
 use Try::Tiny;
@@ -205,7 +204,7 @@ sub _load_config {
   my $config_class =
     $arg->{config_class} ||= 'Dist::Zilla::MVP::Reader::Finder';
 
-  Class::MOP::load_class($config_class);
+  Class::Load::load_class($config_class);
 
   $arg->{chrome}->logger->log_debug(
     { prefix => '[DZ] ' },
@@ -245,8 +244,9 @@ sub _load_config {
 
     my $package = $_->package;
 
+    my $bundle = $package =~ /^@/ ? ' bundle' : '';
     die <<"END_DIE";
-Required plugin $package isn't installed.
+Required plugin$bundle $package isn't installed.
 
 Run 'dzil authordeps' to see a list of all required plugins.
 You can pipe the list to your CPAN client to install or update them:
@@ -339,7 +339,7 @@ has built_in => (
 This method behaves like C<L</build_in>>, but if the dist is already built in
 C<$root> (or the default root, if no root is given), no exception is raised.
 
-=method ensure_built_in
+=method ensure_built
 
 This method just calls C<ensure_built_in> with no arguments.  It gets you the
 default behavior without the weird-looking formulation of C<ensure_built_in>
@@ -419,7 +419,8 @@ sub build_archive {
 
   $_->before_archive for $self->plugins_with(-BeforeArchive)->flatten;
 
-  my $method = Class::Load::load_optional_class('Archive::Tar::Wrapper')
+  my $method = Class::Load::load_optional_class('Archive::Tar::Wrapper',
+                                                { -version => 0.15 })
              ? '_build_archive_with_wrapper'
              : '_build_archive';
 
@@ -436,8 +437,9 @@ sub build_archive {
 sub _build_archive {
   my ($self, $built_in, $basename, $basedir) = @_;
 
-  $self->log("building archive with Archive::Tar; install Archive::Tar::Wrapper for improved speed");
+  $self->log("building archive with Archive::Tar; install Archive::Tar::Wrapper 0.15 or newer for improved speed");
 
+  require Archive::Tar;
   my $archive = Archive::Tar->new;
   my %seen_dir;
   for my $distfile (
@@ -547,13 +549,61 @@ like matching the glob C<Your-Dist-*>.
 =cut
 
 sub clean {
-  my ($self) = @_;
+  my ($self, $dry_run) = @_;
 
   require File::Path;
   for my $x (grep { -e } '.build', glob($self->name . '-*')) {
-    $self->log("clean: removing $x");
-    File::Path::rmtree($x);
+    if ($dry_run) {
+      $self->log("clean: would remove $x");
+    } else {
+      $self->log("clean: removing $x");
+      File::Path::rmtree($x);
+    }
   };
+}
+
+=method ensure_built_in_tmpdir
+
+  $zilla->ensure_built_in_tmpdir;
+
+This method will consistently build the distribution in a temporary
+subdirectory. It will return the path for the temporary build location.
+
+=cut
+
+sub ensure_built_in_tmpdir {
+  my $self = shift;
+
+  require File::Temp;
+
+  my $build_root = dir('.build');
+  $build_root->mkpath unless -d $build_root;
+
+  my $target = dir( File::Temp::tempdir(DIR => $build_root) );
+  $self->log("building distribution under $target for installation");
+
+  my $os_has_symlinks = eval { symlink("",""); 1 };
+  my $previous;
+  my $latest;
+
+  if( $os_has_symlinks ) {
+    $previous = file( $build_root, 'previous' );
+    $latest   = file( $build_root, 'latest'   );
+    if( -l $previous ) {
+      $previous->remove
+        or $self->log("cannot remove old .build/previous link");
+    }
+    if( -l $latest ) {
+      rename $latest, $previous
+        or $self->log("cannot move .build/latest link to .build/previous");
+    }
+    symlink $target->basename, $latest
+      or $self->log('cannot create link .build/latest');
+  }
+
+  $self->ensure_built_in($target);
+
+  return ($target, $latest, $previous);
 }
 
 =method install
@@ -577,22 +627,14 @@ sub install {
   my ($self, $arg) = @_;
   $arg ||= {};
 
-  require File::Temp;
-
-  my $build_root = dir('.build');
-  $build_root->mkpath unless -d $build_root;
-
-  my $target = dir( File::Temp::tempdir(DIR => $build_root) );
-  $self->log("building distribution under $target for installation");
-  $self->ensure_built_in($target);
+  my ($target, $latest) = $self->ensure_built_in_tmpdir;
 
   eval {
     ## no critic Punctuation
     my $wd = File::pushd::pushd($target);
     my @cmd = $arg->{install_command}
             ? @{ $arg->{install_command} }
-            : ($^X => '-MCPAN' =>
-                $^O eq 'MSWin32' ? q{-e"install '.'"} : '-einstall "."');
+            : (cpanm => ".");
 
     $self->log_debug([ 'installing via %s', \@cmd ]);
     system(@cmd) && $self->log_fatal([ "error running %s", \@cmd ]);
@@ -604,6 +646,7 @@ sub install {
   } else {
     $self->log("all's well; removing $target");
     $target->rmtree;
+    $latest->remove if $latest;
   }
 
   return;
@@ -624,20 +667,12 @@ sub test {
   Carp::croak("you can't test without any TestRunner plugins")
     unless my @testers = $self->plugins_with(-TestRunner)->flatten;
 
-  require File::Temp;
-
-  my $build_root = dir('.build');
-  $build_root->mkpath unless -d $build_root;
-
-  my $target = dir( File::Temp::tempdir(DIR => $build_root) );
-  $self->log("building test distribution under $target");
-
-  $self->ensure_built_in($target);
-
-  my $error = $self->run_tests_in($target);
+  my ($target, $latest) = $self->ensure_built_in_tmpdir;
+  my $error  = $self->run_tests_in($target);
 
   $self->log("all's well; removing $target");
   $target->rmtree;
+  $latest->remove if $latest;
 }
 
 =method run_tests_in
@@ -686,17 +721,9 @@ sub run_in_build {
     $self->plugins_with(-BuildRunner)->sort->reverse->flatten;
 
   require "Config.pm"; # skip autoprereq
-  require File::Temp;
 
-  # dzil-build the dist
-  my $build_root = dir('.build');
-  $build_root->mkpath unless -d $build_root;
-
-  my $target    = dir( File::Temp::tempdir(DIR => $build_root) );
+  my ($target, $latest) = $self->ensure_built_in_tmpdir;
   my $abstarget = $target->absolute;
-  $self->log("building test distribution under $target");
-
-  $self->ensure_built_in($target);
 
   # building the dist for real
   my $ok = eval {
@@ -707,6 +734,10 @@ sub run_in_build {
       (map { $abstarget->subdir('blib', $_) } qw(arch lib)),
       (defined $ENV{PERL5LIB} ? $ENV{PERL5LIB} : ());
 
+    local $ENV{PATH} = join $Config::Config{path_sep},
+      (map { $abstarget->subdir('blib', $_) } qw(bin script)),
+      (defined $ENV{PATH} ? $ENV{PATH} : ());
+
     system(@$cmd) and die "error while running: @$cmd";
     1;
   };
@@ -714,6 +745,7 @@ sub run_in_build {
   if ($ok) {
     $self->log("all's well; removing $target");
     $target->rmtree;
+    $latest->remove if $latest;
   } else {
     my $error = $@ || '(unknown error)';
     $self->log($error);

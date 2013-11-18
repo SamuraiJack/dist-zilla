@@ -6,9 +6,15 @@ use Test::More 0.88;
 
 use lib 't/lib';
 
+use File::pushd qw/pushd/;
 use Path::Class;
 use Test::DZil;
+use Dist::Zilla::App::Tester;
 use YAML::Tiny;
+
+use Test::File::ShareDir -share => {
+  -module => { 'Dist::Zilla::MintingProfile::Default' => 'profiles' },
+};
 
 my $tzil = Minter->_new_from_profile(
   [ Default => 'default' ],
@@ -33,5 +39,17 @@ like(
   qr/copyright_holder = A. U. Thor/,
   "copyright_holder in dist.ini",
 );
+
+{
+  my $result = test_dzil( $tzil->tempdir->subdir('mint')->absolute, [qw(add Foo::Bar)] );
+  ok(!$result->{exit_code}) || diag($result->{error});
+  my $pm = dir($result->{tempdir})->file('source/lib/Foo/Bar.pm')->slurp;
+
+  like(
+    $pm,
+    qr/package Foo::Bar;/,
+    "our second module has the package declaration we want",
+  );
+}
 
 done_testing;

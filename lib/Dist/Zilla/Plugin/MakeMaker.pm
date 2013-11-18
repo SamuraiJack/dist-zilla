@@ -7,7 +7,6 @@ use Moose::Autobox;
 use namespace::autoclean;
 
 use Config;
-use Data::Dumper ();
 use List::MoreUtils qw(any uniq);
 
 use Dist::Zilla::File::InMemory;
@@ -89,6 +88,19 @@ use ExtUtils::MakeMaker {{ $eumm_version }};
 {{ $share_dir_code{preamble} || '' }}
 
 my {{ $WriteMakefileArgs }}
+
+unless ( eval { ExtUtils::MakeMaker->VERSION(6.63_03) } ) {
+  my $tr = delete $WriteMakefileArgs{TEST_REQUIRES};
+  my $br = $WriteMakefileArgs{BUILD_REQUIRES};
+  for my $mod ( keys %$tr ) {
+    if ( exists $br->{$mod} ) {
+      $br->{$mod} = $tr->{$mod} if $tr->{$mod} > $br->{$mod};
+    }
+    else {
+      $br->{$mod} = $tr->{$mod};
+    }
+  }
+}
 
 unless ( eval { ExtUtils::MakeMaker->VERSION(6.56) } ) {
   my $br = delete $WriteMakefileArgs{BUILD_REQUIRES};
@@ -194,7 +206,12 @@ sub write_makefile_args {
   my $build_prereq
     = $prereqs->requirements_for(qw(build requires))
     ->clone
-    ->add_requirements($prereqs->requirements_for(qw(test requires)))
+    ->clear_requirement('perl')
+    ->as_string_hash;
+
+  my $test_prereq
+    = $prereqs->requirements_for(qw(test requires))
+    ->clone
     ->clear_requirement('perl')
     ->as_string_hash;
 
@@ -209,6 +226,7 @@ sub write_makefile_args {
 
     CONFIGURE_REQUIRES => $prereqs_dump->(qw(configure requires)),
     BUILD_REQUIRES     => $build_prereq,
+    TEST_REQUIRES      => $test_prereq,
     PREREQ_PM          => $prereqs_dump->(qw(runtime   requires)),
 
     test => { TESTS => join q{ }, sort keys %test_dirs },
@@ -228,6 +246,7 @@ sub setup_installer {
 
   my $perl_prereq = delete $write_makefile_args->{MIN_PERL_VERSION};
 
+  require Data::Dumper;
   my $makefile_args_dumper = Data::Dumper->new(
     [ $write_makefile_args ],
     [ '*WriteMakefileArgs' ],
@@ -263,3 +282,18 @@ has __write_makefile_args => (
 
 __PACKAGE__->meta->make_immutable;
 1;
+
+=head1 SEE ALSO
+
+Core Dist::Zilla plugins:
+L<@Basic|Dist::Zilla::PluginBundle::Basic>,
+L<ModuleBuild|Dist::Zilla::Plugin::ModuleBuild>,
+L<Manifest|Dist::Zilla::Plugin::Manifest>.
+
+Dist::Zilla roles:
+L<BuildRunner|Dist::Zilla::Role::FileGatherer>,
+L<InstallTool|Dist::Zilla::Role::InstallTool>,
+L<PrereqSource|Dist::Zilla::Role::PrereqSource>,
+L<TestRunner|Dist::Zilla::Role::TestRunner>.
+
+=cut

@@ -41,8 +41,9 @@ use namespace::autoclean;
 
 # ABSTRACT: automatically extract prereqs from your modules
 
+use List::AllUtils 'uniq';
 use Moose::Autobox;
-use Perl::PrereqScanner 1.005; # do not prune common libs
+use Perl::PrereqScanner 1.016; # don't skip "lib"
 use PPI;
 use CPAN::Meta::Requirements;
 use version;
@@ -53,6 +54,7 @@ In your F<dist.ini>:
 
   [AutoPrereqs]
   skip = ^Foo|Bar$
+  skip = ^Other::Dist
 
 =head1 DESCRIPTION
 
@@ -60,7 +62,7 @@ This plugin will extract loosely your distribution prerequisites from
 your files using L<Perl::PrereqScanner>.
 
 If some prereqs are not found, you can still add them manually with the
-L<Dist::Zilla::Plugin::Prereqs> plugin.
+L<Prereqs|Dist::Zilla::Plugin::Prereqs> plugin.
 
 This plugin will skip the modules shipped within your dist.
 
@@ -78,8 +80,13 @@ of scanners.
 
 =attr skips
 
-This is an arrayref of regular expressions.  Any module names matching
-any of these regex will not be registered as prerequisites.
+This is an arrayref of regular expressions, derived from all the 'skip' lines
+in the configuration.  Any module names matching any of these regexes will not
+be registered as prerequisites.
+
+=head1 SEE ALSO
+
+L<Prereqs|Dist::Zilla::Plugin::Prereqs>, L<Perl::PrereqScanner>.
 
 =head1 CREDITS
 
@@ -134,15 +141,24 @@ sub register_prereqs {
 
     foreach my $file (@$files) {
       # parse only perl files
-      next unless $file->name =~ /\.(?:pm|pl|t)$/i
+      next unless $file->name =~ /\.(?:pm|pl|t|psgi)$/i
                || $file->content =~ /^#!(?:.*)perl(?:$|\s)/;
+      # RT#76305 skip extra tests produced by ExtraTests plugin
+      next if $file->name =~ m{^t/(?:author|release)-[^/]*\.t$};
 
       # store module name, to trim it from require list later on
-      my $module = $file->name;
-      $module =~ s{^(?:t/)?lib/}{};
-      $module =~ s{\.pm$}{};
-      $module =~ s{/}{::}g;
-      push @modules, $module;
+      my @this_thing = $file->name;
+      if ($this_thing[0] =~ /^t/) {
+        push @this_thing, ($this_thing[0]) x 2;
+        $this_thing[1] =~ s{^t/}{};
+        $this_thing[2] =~ s{^t/lib/}{};
+      } else {
+        $this_thing[0] =~ s{^lib/}{};
+      }
+      @this_thing = uniq @this_thing;
+      s{\.pm$}{} for @this_thing;
+      s{/}{::}g for @this_thing;
+      push @modules, @this_thing;
 
       # parse a file, and merge with existing prereqs
       my $file_req = $scanner->scan_string($file->content);
@@ -152,6 +168,8 @@ sub register_prereqs {
 
     # remove prereqs shipped with current dist
     $req->clear_requirement($_) for @modules;
+
+    $req->clear_requirement($_) for qw(Config Errno); # never indexed
 
     # remove prereqs from skiplist
     for my $skip (($self->skips || [])->flatten) {

@@ -42,6 +42,12 @@ C<package> keyword and the package name, like:
 This sort of declaration is also ignored by the CPAN toolchain, and is
 typically used when doing monkey patching or other tricky things.
 
+=attr die_on_existing_version
+
+If true, then when PkgVersion sees an existing C<$VERSION> assignment, it will
+throw an exception rather than skip the file.  This attribute defaults to
+false.
+
 =cut
 
 sub munge_files {
@@ -62,6 +68,12 @@ sub munge_file {
   return;
 }
 
+has die_on_existing_version => (
+  is  => 'ro',
+  isa => 'Bool',
+  default => 0,
+);
+
 sub munge_perl {
   my ($self, $file) = @_;
 
@@ -73,6 +85,10 @@ sub munge_perl {
   my $document = $self->ppi_document_for_file($file);
 
   if ($self->document_assigns_to_variable($document, '$VERSION')) {
+    if ($self->die_on_existing_version) {
+      $self->log_fatal([ 'existing assignment to $VERSION in %s', $file->name ]);
+    }
+
     $self->log([ 'skipping %s: assigns to $VERSION', $file->name ]);
     return;
   }
@@ -81,6 +97,7 @@ sub munge_perl {
 
   my %seen_pkg;
 
+  my $munged = 0;
   for my $stmt (@$package_stmts) {
     my $package = $stmt->namespace;
 
@@ -112,10 +129,24 @@ sub munge_perl {
     Carp::carp("error inserting version in " . $file->name)
       unless $stmt->insert_after($children[0]->clone)
       and    $stmt->insert_after( PPI::Token::Whitespace->new("\n") );
+    $munged = 1;
   }
 
-  $self->save_ppi_document_to_file($document, $file);
+  $self->save_ppi_document_to_file($document, $file) if $munged;
 }
 
 __PACKAGE__->meta->make_immutable;
 1;
+
+=head1 SEE ALSO
+
+Core Dist::Zilla plugins:
+L<PodVersion|Dist::Zilla::Plugin::PodVersion>,
+L<AutoVersion|Dist::Zilla::Plugin::AutoVersion>,
+L<NextRelease|Dist::Zilla::Plugin::NextRelease>.
+
+Other Dist::Zilla plugins:
+L<OurPkgVersion|Dist::Zilla::Plugin::OurPkgVersion> inserts version
+numbers using C<our $VERSION = '...';> and without changing line numbers
+
+=cut

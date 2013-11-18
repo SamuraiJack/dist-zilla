@@ -14,3 +14,9 @@ before register_component => sub {
 
 __PACKAGE__->meta->make_immutable;
 1;
+
+=head1 SEE ALSO
+
+L<AutoPrereqs|Dist::Zilla::Plugin::AutoPrereqs>
+
+=cut
